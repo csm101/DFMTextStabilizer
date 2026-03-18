@@ -1,0 +1,36 @@
+# Delphi and RAD Studio
+*.dcu
+*.ddp
+*.dsk
+*.identcache
+*.local
+*.map
+*.rsm
+*.tvsconfig
+*.~*
+
+# Build outputs
+Win32/
+Win64/
+Debug/
+Release/
+__history/
+__recovery/
+
+# Package and binaries
+*.bpl
+*.dcp
+*.exe
+*.dll
+*.drc
+
+# IDE user files
+*.dproj.local
+*.stat
+
+# VS Code
+.vscode/
+
+# Logs and temp
+*.log
+*.tmp
