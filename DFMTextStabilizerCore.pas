@@ -444,6 +444,16 @@ end;
 // File-level conversion
 // ---------------------------------------------------------------------------
 
+function HasNonAsciiBytes(const P: Pointer; Size: NativeInt): Boolean;
+var
+  I: NativeInt;
+begin
+  for I := 0 to Size - 1 do
+    if PByte(P)[I] > 127 then
+      Exit(True);
+  Result := False;
+end;
+
 function IsBinaryDFM(Stream: TStream): Boolean;
 var
   Sig    : array[0..1] of Byte;
@@ -478,18 +488,52 @@ begin
     end
     else
     begin
-      // Text DFM (UTF-8 with/without BOM, or ANSI):
-      // skip the BOM if present, then round-trip through ObjectTextToBinary
-      // so that we get a proper binary stream to feed DFMBinaryToText.
+      // Text DFM (UTF-8 with/without BOM, or pure-ASCII ANSI with #NNN escapes).
+      //
+      // ObjectTextToBinary (via TParser) correctly decodes UTF-8 only when the
+      // UTF-8 BOM is present at the start of the stream.  Without it, non-ASCII
+      // bytes are misinterpreted as ANSI, causing double-encoding of every
+      // character above U+007F.
+      //
+      // Three cases:
+      //  1. BOM present   → pass the stream as-is starting from position 0;
+      //                     TParser skips the BOM itself.
+      //  2. Non-ASCII bytes without BOM (UTF-8 without BOM) → prepend BOM in
+      //                     memory before passing to ObjectTextToBinary.
+      //  3. Pure ASCII    → no BOM needed; pass directly.
+      //
+      // This mirrors the logic in HookedObjectTextToBinary in the IDE plugin.
+
       BOM    := TEncoding.UTF8.GetPreamble;
       BOMLen := Length(BOM);
+
       if (BOMLen > 0) and (FileContent.Size >= BOMLen) and
          CompareMem(FileContent.Memory, @BOM[0], BOMLen) then
-        FileContent.Position := BOMLen
-      else
+      begin
+        // Case 1: UTF-8 with BOM — let TParser handle the BOM
         FileContent.Position := 0;
+        ObjectTextToBinary(FileContent, BinaryStream);
+      end
+      else if HasNonAsciiBytes(FileContent.Memory, FileContent.Size) then
+      begin
+        // Case 2: UTF-8 without BOM — prepend BOM in a temporary stream
+        var Patched := TMemoryStream.Create;
+        try
+          Patched.Write(BOM[0], BOMLen);
+          Patched.Write(FileContent.Memory^, FileContent.Size);
+          Patched.Position := 0;
+          ObjectTextToBinary(Patched, BinaryStream);
+        finally
+          Patched.Free;
+        end;
+      end
+      else
+      begin
+        // Case 3: pure ASCII (e.g. old ANSI DFM with #NNN escapes)
+        FileContent.Position := 0;
+        ObjectTextToBinary(FileContent, BinaryStream);
+      end;
 
-      ObjectTextToBinary(FileContent, BinaryStream);
       BinaryStream.Position := 0;
       DFMBinaryToText(BinaryStream, OutputStream);
     end;
