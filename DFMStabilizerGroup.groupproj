@@ -9,9 +9,6 @@
         <Projects Include="DFMStabilizerTool.dproj">
             <Dependencies/>
         </Projects>
-        <Projects Include="X:\Prov\Project1.dproj">
-            <Dependencies/>
-        </Projects>
     </ItemGroup>
     <ProjectExtensions>
         <Borland.Personality>Default.Personality.12</Borland.Personality>
@@ -38,23 +35,14 @@
     <Target Name="DFMStabilizerTool:Make">
         <MSBuild Projects="DFMStabilizerTool.dproj" Targets="Make"/>
     </Target>
-    <Target Name="Project1">
-        <MSBuild Projects="X:\Prov\Project1.dproj"/>
-    </Target>
-    <Target Name="Project1:Clean">
-        <MSBuild Projects="X:\Prov\Project1.dproj" Targets="Clean"/>
-    </Target>
-    <Target Name="Project1:Make">
-        <MSBuild Projects="X:\Prov\Project1.dproj" Targets="Make"/>
-    </Target>
     <Target Name="Build">
-        <CallTarget Targets="DFMTextStabilizer;DFMStabilizerTool;Project1"/>
+        <CallTarget Targets="DFMTextStabilizer;DFMStabilizerTool"/>
     </Target>
     <Target Name="Clean">
-        <CallTarget Targets="DFMTextStabilizer:Clean;DFMStabilizerTool:Clean;Project1:Clean"/>
+        <CallTarget Targets="DFMTextStabilizer:Clean;DFMStabilizerTool:Clean"/>
     </Target>
     <Target Name="Make">
-        <CallTarget Targets="DFMTextStabilizer:Make;DFMStabilizerTool:Make;Project1:Make"/>
+        <CallTarget Targets="DFMTextStabilizer:Make;DFMStabilizerTool:Make"/>
     </Target>
     <Import Project="$(BDS)\Bin\CodeGear.Group.Targets" Condition="Exists('$(BDS)\Bin\CodeGear.Group.Targets')"/>
 </Project>
