@@ -12,7 +12,7 @@ A concrete example shows the difference. Consider a form with a label and a SQL 
 
 **Plain Delphi:**
 
-```
+```pascal
 object Form1: TForm1
   object Label1: TLabel
     Caption = 'Warning: lowering this threshold causes performa' +
@@ -43,7 +43,7 @@ Problems with this output:
 
 **With this plugin:**
 
-```
+```pascal
 object Form1: TForm1
   object Label1: TLabel
     Caption = 'Warning: lowering this threshold causes performance degradation. ' +
