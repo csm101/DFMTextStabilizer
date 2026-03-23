@@ -27,9 +27,10 @@ __recovery/
 # IDE user files
 *.dproj.local
 *.stat
-DFMTextStabilizer.delphilsp.json
-DFMTextStabilizer.dsv
-DFMTextStabilizer.res
+*.delphilsp.json
+*.dsv
+*.skincfg
+*.res
 
 # VS Code
 .vscode/

@@ -230,6 +230,55 @@ So even in the worst case (first line rewritten), no data corruption occurs beca
 
 ---
 
+## Batch conversion tool
+
+The repository also includes `DFMStabilizerTool`, a standalone command-line utility that converts existing `.dfm` files to the stabilized format in bulk. This is useful when first adopting the plugin on a repository that already contains many forms: run the tool once to bring all files to the new format, then install the plugin so the IDE keeps them there on every subsequent save.
+
+The tool shares the same conversion logic as the plugin (`DFMTextStabilizerCore.pas`), so the output is guaranteed to be identical to what the IDE would produce. Files that are already in the stabilized format are detected by a byte-for-byte comparison and left untouched, avoiding spurious VCS changes.
+
+### Usage
+
+```
+DFMStabilizerTool [-s] <file|pattern|@listfile> [...]
+```
+
+| Argument | Description |
+|----------|-------------|
+| `file` | Exact path to a `.dfm` file |
+| `pattern` | Wildcard pattern, e.g. `*.dfm` or `forms\*.dfm` |
+| `@listfile` | Text file listing one path or pattern per line (`#` = comment) |
+| `-s` | Recurse into subdirectories when expanding wildcard patterns |
+
+**Examples:**
+
+```
+# Convert a single file
+DFMStabilizerTool MainForm.dfm
+
+# Convert all .dfm files in the current directory
+DFMStabilizerTool *.dfm
+
+# Convert all .dfm files recursively from the current directory downward
+DFMStabilizerTool -s *.dfm
+
+# Convert a specific subtree
+DFMStabilizerTool -s src\forms\*.dfm
+
+# Convert files listed in a text file
+DFMStabilizerTool @all_forms.txt
+
+# Mix patterns and list files
+DFMStabilizerTool -s *.dfm @extra_forms.txt
+```
+
+The tool exits with code 0 if all files were converted (or were already up to date), and with code 1 if any file failed. Failed files are reported individually and do not interrupt processing of the remaining ones.
+
+### Requirements
+
+`DFMStabilizerTool` is a pure RTL console application. It has no dependency on DelphiDetours or on any IDE package — compile it with any version of Delphi supported by the plugin.
+
+---
+
 ## License
 
 This project is licensed under the MIT License.
