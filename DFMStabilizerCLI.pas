@@ -56,8 +56,10 @@ procedure TDFMProcessor.ProcessFile(const AFileName: string);
 begin
   try
     Write('  ', AFileName, ' ... ');
-    ConvertDFMFile(AFileName);
-    Writeln('OK');
+    if ConvertDFMFile(AFileName) then
+      Writeln('converted')
+    else
+      Writeln('already up to date');
     Inc(FSuccessCount);
   except
     on E: Exception do

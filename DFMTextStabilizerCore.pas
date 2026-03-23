@@ -25,8 +25,10 @@ uses
 procedure DFMBinaryToText(const Input, Output: TStream);
 
 // Convert AFileName in-place to the stabilized text format.
+// Returns True if the file was actually rewritten, False if it was already
+// in the stabilized format (no disk write performed).
 // Raises an exception if the file cannot be read, parsed, or written.
-procedure ConvertDFMFile(const AFileName: string);
+function ConvertDFMFile(const AFileName: string): Boolean;
 
 implementation
 
@@ -452,7 +454,7 @@ begin
   Stream.Position := SavePos;
 end;
 
-procedure ConvertDFMFile(const AFileName: string);
+function ConvertDFMFile(const AFileName: string): Boolean;
 var
   FileContent : TMemoryStream;
   BinaryStream: TMemoryStream;
@@ -496,7 +498,7 @@ begin
     // original file — avoids spurious VCS changes on already-stabilized files.
     if (OutputStream.Size = FileContent.Size) and
        CompareMem(OutputStream.Memory, FileContent.Memory, OutputStream.Size) then
-      Exit;
+      Exit(False);
 
     // Write result atomically: write to temp, then replace the original.
     TmpFileName := AFileName + '.dfmstab.tmp';
@@ -517,6 +519,7 @@ begin
       raise;
     end;
 
+    Result := True;
   finally
     OutputStream.Free;
     BinaryStream.Free;
