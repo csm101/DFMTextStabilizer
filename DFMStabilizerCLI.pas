@@ -4,9 +4,14 @@ unit DFMStabilizerCLI;
   Command-line interface for the DFM stabilizer tool.
 
   Argument syntax:
-    DFMStabilizerTool [-s] <file|pattern|@listfile> [...]
+    DFMStabilizerTool [-s] [-a:<codepage>] <file|pattern|@listfile> [...]
 
     -s          Recurse into subdirectories when expanding wildcard patterns.
+    -a:<cp>     Treat text DFMs with no UTF-8 BOM as being encoded in the
+                given ANSI code page (e.g. -a:1250) instead of assuming
+                UTF-8 without BOM. Use this for legacy DFMs that fail with
+                "No mapping for the Unicode character exists in the target
+                multi-byte code page".
     file        Exact path to a DFM file.
     pattern     Wildcard pattern: *.dfm, path\*.dfm, etc.
     @listfile   Text file listing one path or pattern per line.
@@ -32,22 +37,24 @@ type
   TDFMProcessor = class
   private
     FRecursive   : Boolean;
+    FAnsiCodePage: Integer;
     FSuccessCount: Integer;
     FFailCount   : Integer;
     procedure ProcessFile(const AFileName: string);
     procedure ExpandAndProcess(const Pattern: string);
     procedure ProcessListFile(const AListFileName: string);
   public
-    constructor Create(ARecursive: Boolean);
+    constructor Create(ARecursive: Boolean; AAnsiCodePage: Integer);
     procedure ProcessArg(const Arg: string);
     property SuccessCount: Integer read FSuccessCount;
     property FailCount   : Integer read FFailCount;
   end;
 
-constructor TDFMProcessor.Create(ARecursive: Boolean);
+constructor TDFMProcessor.Create(ARecursive: Boolean; AAnsiCodePage: Integer);
 begin
   inherited Create;
   FRecursive    := ARecursive;
+  FAnsiCodePage := AAnsiCodePage;
   FSuccessCount := 0;
   FFailCount    := 0;
 end;
@@ -56,7 +63,7 @@ procedure TDFMProcessor.ProcessFile(const AFileName: string);
 begin
   try
     Write('  ', AFileName, ' ... ');
-    if ConvertDFMFile(AFileName) then
+    if ConvertDFMFile(AFileName, FAnsiCodePage) then
       Writeln('converted')
     else
       Writeln('already up to date');
@@ -151,9 +158,34 @@ end;
 
 // ---------------------------------------------------------------------------
 
+const
+  AnsiCodePageSwitch = '-a:';
+
+function IsAnsiCodePageArg(const Arg: string): Boolean;
+begin
+  Result := Arg.StartsWith(AnsiCodePageSwitch, True);
+end;
+
+// Extract the numeric code page from an "-a:<codepage>" argument.
+// Accepts a bare number (-a:1250) or a name containing one (-a:CP1250).
+function ExtractAnsiCodePage(const Arg: string): Integer;
+var
+  Value : string;
+  Digits: string;
+  C     : Char;
+begin
+  Value := Arg.Substring(Length(AnsiCodePageSwitch));
+  Digits := '';
+  for C in Value do
+    if CharInSet(C, ['0'..'9']) then
+      Digits := Digits + C;
+  if not TryStrToInt(Digits, Result) then
+    raise Exception.CreateFmt('Invalid ANSI code page: "%s"', [Arg]);
+end;
+
 procedure PrintUsage;
 begin
-  Writeln('Usage: DFMStabilizerTool [-s] <file|pattern|@listfile> [...]');
+  Writeln('Usage: DFMStabilizerTool [-s] [-a:<codepage>] <file|pattern|@listfile> [...]');
   Writeln;
   Writeln('Converts DFM files in-place to the stabilized UTF-8 text format:');
   Writeln('  - strings are not broken at 64 characters (limit raised to 700)');
@@ -163,6 +195,11 @@ begin
   Writeln;
   Writeln('Options:');
   Writeln('  -s          Recurse into subdirectories when expanding wildcard patterns');
+  Writeln('  -a:<cp>     Decode text DFMs with no UTF-8 BOM using ANSI code page <cp>');
+  Writeln('              (e.g. -a:1250 for Central European / Czech) instead of');
+  Writeln('              assuming UTF-8 without BOM. Use this if conversion fails with');
+  Writeln('              "No mapping for the Unicode character exists in the target');
+  Writeln('              multi-byte code page".');
   Writeln;
   Writeln('Arguments:');
   Writeln('  file        Exact path to a DFM file');
@@ -174,16 +211,18 @@ begin
   Writeln('  DFMStabilizerTool -s *.dfm');
   Writeln('  DFMStabilizerTool -s src\*.dfm @extra_forms.txt');
   Writeln('  DFMStabilizerTool @all_forms.txt');
+  Writeln('  DFMStabilizerTool -a:1250 legacy\*.dfm');
 end;
 
 // ---------------------------------------------------------------------------
 
 procedure Run;
 var
-  Recursive: Boolean;
-  Processor: TDFMProcessor;
-  I        : Integer;
-  Arg      : string;
+  Recursive   : Boolean;
+  AnsiCodePage: Integer;
+  Processor   : TDFMProcessor;
+  I           : Integer;
+  Arg         : string;
 begin
   if ParamCount = 0 then
   begin
@@ -191,20 +230,23 @@ begin
     Halt(1);
   end;
 
-  Recursive := False;
+  Recursive    := False;
+  AnsiCodePage := 0;
   for I := 1 to ParamCount do
-    if SameText(ParamStr(I), '-s') then
-    begin
-      Recursive := True;
-      Break;
-    end;
+  begin
+    Arg := ParamStr(I);
+    if SameText(Arg, '-s') then
+      Recursive := True
+    else if IsAnsiCodePageArg(Arg) then
+      AnsiCodePage := ExtractAnsiCodePage(Arg);
+  end;
 
-  Processor := TDFMProcessor.Create(Recursive);
+  Processor := TDFMProcessor.Create(Recursive, AnsiCodePage);
   try
     for I := 1 to ParamCount do
     begin
       Arg := ParamStr(I);
-      if SameText(Arg, '-s') then
+      if SameText(Arg, '-s') or IsAnsiCodePageArg(Arg) then
         Continue;
       Processor.ProcessArg(Arg);
     end;
