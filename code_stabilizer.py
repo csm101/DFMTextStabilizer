@@ -13,7 +13,10 @@ Argument syntax:
                   contain characters outside ASCII, turning "ahoj" into
                   L"ahoj" only where the wide prefix is actually needed.
                   Literals wrapped in the TEXT() macro are left alone,
-                  because TEXT() adds the L prefix itself.
+                  because TEXT() adds the L prefix itself. On lines with
+                  a ternary ? operator where some literal gets the L,
+                  the remaining literals on the line get it too, so both
+                  branches of  cond ? "pan" : "paní"  are wide.
                   A file is only rewritten when its content actually
                   changes; if the sole difference would be the prepended
                   UTF-8 BOM, the file is left untouched.
@@ -79,10 +82,17 @@ def widen_line(line, in_block_comment):
     Literals that already have a prefix (L"...", u8"...", macro"...")
     or are wrapped in the TEXT() macro are left alone.
 
+    When the line contains a ternary ? operator and at least one literal
+    gets the L prefix, all remaining eligible literals on the line get it
+    too, so both branches of  cond ? "pan" : "paní"  stay the same type.
+
     Returns (new_line, in_block_comment) where in_block_comment is the
     comment state carried over to the next line.
     """
-    inserts = []  # indexes of opening quotes that need an L
+    inserts = []          # indexes of opening quotes that need an L
+    ascii_literals = []   # eligible literals that are pure ASCII
+    has_ternary = False   # saw a ? outside strings/chars/comments
+    has_wide = False      # saw an existing L"..." literal
     i = 0
     n = len(line)
 
@@ -123,6 +133,9 @@ def widen_line(line, in_block_comment):
             start = i
             # already prefixed (L"", u8"", R"", user macro"") -> leave alone
             prefixed = start > 0 and (line[start - 1].isalnum() or line[start - 1] == "_")
+            if (prefixed and line[start - 1] == "L"
+                    and (start < 2 or not (line[start - 2].isalnum() or line[start - 2] == "_"))):
+                has_wide = True
             needs_l = False
             i += 1
             while i < n:
@@ -135,11 +148,20 @@ def widen_line(line, in_block_comment):
                     if ord(line[i]) > 127:
                         needs_l = True
                     i += 1
-            if needs_l and not prefixed and not preceded_by_text_macro(line, start):
-                inserts.append(start)
+            if not prefixed and not preceded_by_text_macro(line, start):
+                if needs_l:
+                    inserts.append(start)
+                else:
+                    ascii_literals.append(start)
             continue
 
+        if c == "?":
+            has_ternary = True
+
         i += 1
+
+    if has_ternary and ascii_literals and (inserts or has_wide):
+        inserts = sorted(inserts + ascii_literals)
 
     if inserts:
         parts = []
