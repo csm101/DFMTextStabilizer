@@ -12,6 +12,9 @@ Argument syntax:
   -w              Add the L prefix to narrow string literals ("...") that
                   contain characters outside ASCII, turning "ahoj" into
                   L"ahoj" only where the wide prefix is actually needed.
+                  A file is only rewritten when its content actually
+                  changes; if the sole difference would be the prepended
+                  UTF-8 BOM, the file is left untouched.
   -a:<codepage>   Source ANSI codepage for files that are not already valid
                   UTF-8 (default: cp1250). Example: -a:cp1252
   file            Exact path to a file.
@@ -150,10 +153,14 @@ def convert_file(file_name, codepage, widen=False):
     """Convert file_name in-place to UTF-8 with BOM.
 
     With widen=True, narrow string literals containing non-ASCII
-    characters also get the L prefix ("ahoj" -> L"ahoj").
+    characters also get the L prefix ("ahoj" -> L"ahoj"), and a file
+    whose only difference from the result would be the prepended BOM
+    is left untouched (no rewrite just to add a BOM).
 
-    Returns True if the file was actually rewritten, False if it was
-    already in the target format (no disk write performed).
+    Returns one of:
+      "converted"   file was rewritten
+      "unchanged"   file was already in the target format
+      "skipped"     widen mode and the only change would be the BOM
     """
     with open(file_name, "rb") as f:
         raw = f.read()
@@ -171,7 +178,10 @@ def convert_file(file_name, codepage, widen=False):
     output = UTF8_BOM + text.encode("utf-8")
 
     if output == raw:
-        return False
+        return "unchanged"
+
+    if widen and output == UTF8_BOM + raw:
+        return "skipped"
 
     tmp_name = file_name + ".stab.tmp"
     try:
@@ -183,7 +193,7 @@ def convert_file(file_name, codepage, widen=False):
             os.remove(tmp_name)
         raise
 
-    return True
+    return "converted"
 
 
 class Processor:
@@ -197,8 +207,13 @@ class Processor:
     def process_file(self, file_name):
         sys.stdout.write("  {} ... ".format(file_name))
         try:
-            converted = convert_file(file_name, self.codepage, self.widen)
-            sys.stdout.write("converted\n" if converted else "already up to date\n")
+            result = convert_file(file_name, self.codepage, self.widen)
+            messages = {
+                "converted": "converted",
+                "unchanged": "already up to date",
+                "skipped": "skipped (only BOM would change)",
+            }
+            sys.stdout.write(messages[result] + "\n")
             self.success_count += 1
         except Exception as e:
             sys.stdout.write("FAILED: {}\n".format(e))
@@ -252,7 +267,8 @@ def print_usage():
     print()
     print("Options:")
     print("  -s              Recurse into subdirectories when expanding wildcard patterns")
-    print('  -w              Add L prefix to "..." literals containing non-ASCII characters')
+    print('  -w              Add L prefix to "..." literals containing non-ASCII characters;')
+    print("                  a file whose only change would be the BOM is left untouched")
     print("  -a:<codepage>   Source ANSI codepage for non-UTF-8 files (default: {})".format(DEFAULT_CODEPAGE))
     print()
     print("Arguments:")
