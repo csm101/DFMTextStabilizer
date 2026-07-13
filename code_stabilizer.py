@@ -23,7 +23,8 @@ Argument syntax:
                   Lines starting with # are treated as comments.
 
 Conversion rules:
-  - Files that already start with a UTF-8 BOM are left untouched.
+  - Files that already start with a UTF-8 BOM are considered stabilized
+    and are left untouched, even when -w is given.
   - Files whose content already decodes as valid UTF-8 (without BOM) simply
     get the BOM prepended; their bytes are not re-encoded.
   - All other files are decoded using the source codepage (-a) and
@@ -157,15 +158,22 @@ def convert_file(file_name, codepage, widen=False):
     whose only difference from the result would be the prepended BOM
     is left untouched (no rewrite just to add a BOM).
 
+    Files that already start with a UTF-8 BOM are considered stabilized
+    and are never touched, not even by the widen pass.
+
     Returns one of:
       "converted"   file was rewritten
       "unchanged"   file was already in the target format
       "skipped"     widen mode and the only change would be the BOM
+      "has_bom"     file already starts with a UTF-8 BOM, kept as is
     """
     with open(file_name, "rb") as f:
         raw = f.read()
 
-    body = raw[len(UTF8_BOM):] if raw.startswith(UTF8_BOM) else raw
+    if raw.startswith(UTF8_BOM):
+        return "has_bom"
+
+    body = raw
 
     try:
         text = body.decode("utf-8")
@@ -212,6 +220,7 @@ class Processor:
                 "converted": "converted",
                 "unchanged": "already up to date",
                 "skipped": "skipped (only BOM would change)",
+                "has_bom": "kept (already has UTF-8 BOM)",
             }
             sys.stdout.write(messages[result] + "\n")
             self.success_count += 1
@@ -260,7 +269,7 @@ def print_usage():
     print("Usage: code_stabilizer.py [-s] [-w] [-a:<codepage>] <file|pattern|@listfile> [...]")
     print()
     print("Converts text files in-place from an ANSI codepage to UTF-8 with BOM:")
-    print("  - files already starting with a UTF-8 BOM are left untouched")
+    print("  - files already starting with a UTF-8 BOM are left untouched (even with -w)")
     print("  - files that already decode as valid UTF-8 just get the BOM added")
     print("  - all other files are decoded using the source codepage and re-encoded")
     print("  - file always starts with a UTF-8 BOM after conversion")
