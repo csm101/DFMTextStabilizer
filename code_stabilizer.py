@@ -6,7 +6,7 @@ Command-line tool that converts text files in-place from an ANSI codepage
 encoding to UTF-8 with a byte-order mark (BOM).
 
 Argument syntax:
-  code_stabilizer.py [-s] [-w] [-a:<codepage>] <file|pattern|@listfile> [...]
+  code_stabilizer.py [-s] [-w] [-f] [-a:<codepage>] <file|pattern|@listfile> [...]
 
   -s              Recurse into subdirectories when expanding wildcard patterns.
   -w              Add the L prefix to narrow string literals ("...") that
@@ -15,6 +15,10 @@ Argument syntax:
                   A file is only rewritten when its content actually
                   changes; if the sole difference would be the prepended
                   UTF-8 BOM, the file is left untouched.
+  -f              Force the stabilization even when the file would not
+                  need it otherwise: files already starting with a UTF-8
+                  BOM are processed too (including the -w widen pass),
+                  and the BOM is written even when it is the only change.
   -a:<codepage>   Source ANSI codepage for files that are not already valid
                   UTF-8 (default: cp1250). Example: -a:cp1252
   file            Exact path to a file.
@@ -24,7 +28,7 @@ Argument syntax:
 
 Conversion rules:
   - Files that already start with a UTF-8 BOM are considered stabilized
-    and are left untouched, even when -w is given.
+    and are left untouched, even when -w is given (unless -f forces it).
   - Files whose content already decodes as valid UTF-8 (without BOM) simply
     get the BOM prepended; their bytes are not re-encoded.
   - All other files are decoded using the source codepage (-a) and
@@ -150,7 +154,7 @@ def normalize_codepage(name):
     return name
 
 
-def convert_file(file_name, codepage, widen=False):
+def convert_file(file_name, codepage, widen=False, force=False):
     """Convert file_name in-place to UTF-8 with BOM.
 
     With widen=True, narrow string literals containing non-ASCII
@@ -159,7 +163,12 @@ def convert_file(file_name, codepage, widen=False):
     is left untouched (no rewrite just to add a BOM).
 
     Files that already start with a UTF-8 BOM are considered stabilized
-    and are never touched, not even by the widen pass.
+    and are not touched, not even by the widen pass.
+
+    With force=True the file is stabilized even when it would not need
+    it otherwise: files that already have a BOM are still processed
+    (e.g. by the widen pass), and the BOM is written even when it would
+    be the only change.
 
     Returns one of:
       "converted"   file was rewritten
@@ -171,9 +180,11 @@ def convert_file(file_name, codepage, widen=False):
         raw = f.read()
 
     if raw.startswith(UTF8_BOM):
-        return "has_bom"
-
-    body = raw
+        if not force:
+            return "has_bom"
+        body = raw[len(UTF8_BOM):]
+    else:
+        body = raw
 
     try:
         text = body.decode("utf-8")
@@ -188,7 +199,7 @@ def convert_file(file_name, codepage, widen=False):
     if output == raw:
         return "unchanged"
 
-    if widen and output == UTF8_BOM + raw:
+    if widen and not force and output == UTF8_BOM + raw:
         return "skipped"
 
     tmp_name = file_name + ".stab.tmp"
@@ -205,17 +216,18 @@ def convert_file(file_name, codepage, widen=False):
 
 
 class Processor:
-    def __init__(self, recursive, codepage, widen=False):
+    def __init__(self, recursive, codepage, widen=False, force=False):
         self.recursive = recursive
         self.codepage = codepage
         self.widen = widen
+        self.force = force
         self.success_count = 0
         self.fail_count = 0
 
     def process_file(self, file_name):
         sys.stdout.write("  {} ... ".format(file_name))
         try:
-            result = convert_file(file_name, self.codepage, self.widen)
+            result = convert_file(file_name, self.codepage, self.widen, self.force)
             messages = {
                 "converted": "converted",
                 "unchanged": "already up to date",
@@ -266,10 +278,11 @@ class Processor:
 
 
 def print_usage():
-    print("Usage: code_stabilizer.py [-s] [-w] [-a:<codepage>] <file|pattern|@listfile> [...]")
+    print("Usage: code_stabilizer.py [-s] [-w] [-f] [-a:<codepage>] <file|pattern|@listfile> [...]")
     print()
     print("Converts text files in-place from an ANSI codepage to UTF-8 with BOM:")
     print("  - files already starting with a UTF-8 BOM are left untouched (even with -w)")
+    print("    unless -f forces their processing")
     print("  - files that already decode as valid UTF-8 just get the BOM added")
     print("  - all other files are decoded using the source codepage and re-encoded")
     print("  - file always starts with a UTF-8 BOM after conversion")
@@ -278,6 +291,9 @@ def print_usage():
     print("  -s              Recurse into subdirectories when expanding wildcard patterns")
     print('  -w              Add L prefix to "..." literals containing non-ASCII characters;')
     print("                  a file whose only change would be the BOM is left untouched")
+    print("  -f              Force stabilization even when the file would not need it:")
+    print("                  processes files that already have a BOM and writes the BOM")
+    print("                  even when it is the only change")
     print("  -a:<codepage>   Source ANSI codepage for non-UTF-8 files (default: {})".format(DEFAULT_CODEPAGE))
     print()
     print("Arguments:")
@@ -300,6 +316,7 @@ def main(argv):
 
     recursive = False
     widen = False
+    force = False
     codepage = DEFAULT_CODEPAGE
     args = []
 
@@ -309,6 +326,8 @@ def main(argv):
             recursive = True
         elif lower == "-w":
             widen = True
+        elif lower == "-f":
+            force = True
         elif lower.startswith("-a:"):
             try:
                 codepage = normalize_codepage(arg[3:])
@@ -322,7 +341,7 @@ def main(argv):
         print_usage()
         return 1
 
-    processor = Processor(recursive, codepage, widen)
+    processor = Processor(recursive, codepage, widen, force)
     for arg in args:
         processor.process_arg(arg)
 
