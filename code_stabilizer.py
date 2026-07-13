@@ -12,6 +12,8 @@ Argument syntax:
   -w              Add the L prefix to narrow string literals ("...") that
                   contain characters outside ASCII, turning "ahoj" into
                   L"ahoj" only where the wide prefix is actually needed.
+                  Literals wrapped in the TEXT() macro are left alone,
+                  because TEXT() adds the L prefix itself.
                   A file is only rewritten when its content actually
                   changes; if the sole difference would be the prepended
                   UTF-8 BOM, the file is left untouched.
@@ -49,6 +51,25 @@ UTF8_BOM = codecs.BOM_UTF8
 DEFAULT_CODEPAGE = "cp1250"
 
 
+def preceded_by_text_macro(line, start):
+    """True if the literal opening at line[start] is the argument of the
+    TEXT()/_TEXT()/__TEXT() widening macro, e.g. TEXT("ahoj").
+    Such literals must stay narrow: the macro expands to L##literal and
+    an explicit L prefix would produce the invalid token LL"..."."""
+    i = start - 1
+    while i >= 0 and line[i] in " \t":
+        i -= 1
+    if i < 0 or line[i] != "(":
+        return False
+    i -= 1
+    while i >= 0 and line[i] in " \t":
+        i -= 1
+    end = i
+    while i >= 0 and (line[i].isalnum() or line[i] == "_"):
+        i -= 1
+    return line[i + 1:end + 1] in ("TEXT", "_TEXT", "__TEXT")
+
+
 def widen_line(line, in_block_comment):
     """Insert L before narrow "..." literals on one line that contain
     a character outside ASCII.
@@ -56,7 +77,7 @@ def widen_line(line, in_block_comment):
     Understands // and /* */ comments, character literals ('...') and
     backslash escapes, so quotes inside those never start a string.
     Literals that already have a prefix (L"...", u8"...", macro"...")
-    are left alone.
+    or are wrapped in the TEXT() macro are left alone.
 
     Returns (new_line, in_block_comment) where in_block_comment is the
     comment state carried over to the next line.
@@ -114,7 +135,7 @@ def widen_line(line, in_block_comment):
                     if ord(line[i]) > 127:
                         needs_l = True
                     i += 1
-            if needs_l and not prefixed:
+            if needs_l and not prefixed and not preceded_by_text_macro(line, start):
                 inserts.append(start)
             continue
 
