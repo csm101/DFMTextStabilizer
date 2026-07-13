@@ -6,9 +6,12 @@ Command-line tool that converts text files in-place from an ANSI codepage
 encoding to UTF-8 with a byte-order mark (BOM).
 
 Argument syntax:
-  code_stabilizer.py [-s] [-a:<codepage>] <file|pattern|@listfile> [...]
+  code_stabilizer.py [-s] [-w] [-a:<codepage>] <file|pattern|@listfile> [...]
 
   -s              Recurse into subdirectories when expanding wildcard patterns.
+  -w              Add the L prefix to narrow string literals ("...") that
+                  contain characters outside ASCII, turning "ahoj" into
+                  L"ahoj" only where the wide prefix is actually needed.
   -a:<codepage>   Source ANSI codepage for files that are not already valid
                   UTF-8 (default: cp1250). Example: -a:cp1252
   file            Exact path to a file.
@@ -38,6 +41,103 @@ UTF8_BOM = codecs.BOM_UTF8
 DEFAULT_CODEPAGE = "cp1250"
 
 
+def widen_line(line, in_block_comment):
+    """Insert L before narrow "..." literals on one line that contain
+    a character outside ASCII.
+
+    Understands // and /* */ comments, character literals ('...') and
+    backslash escapes, so quotes inside those never start a string.
+    Literals that already have a prefix (L"...", u8"...", macro"...")
+    are left alone.
+
+    Returns (new_line, in_block_comment) where in_block_comment is the
+    comment state carried over to the next line.
+    """
+    inserts = []  # indexes of opening quotes that need an L
+    i = 0
+    n = len(line)
+
+    while i < n:
+        if in_block_comment:
+            end = line.find("*/", i)
+            if end == -1:
+                i = n
+            else:
+                in_block_comment = False
+                i = end + 2
+            continue
+
+        c = line[i]
+
+        if c == "/" and i + 1 < n:
+            if line[i + 1] == "/":
+                break  # rest of the line is a comment
+            if line[i + 1] == "*":
+                in_block_comment = True
+                i += 2
+                continue
+
+        if c == "'":
+            # character literal: skip it, honouring escapes
+            i += 1
+            while i < n:
+                if line[i] == "\\":
+                    i += 2
+                elif line[i] == "'":
+                    i += 1
+                    break
+                else:
+                    i += 1
+            continue
+
+        if c == '"':
+            start = i
+            # already prefixed (L"", u8"", R"", user macro"") -> leave alone
+            prefixed = start > 0 and (line[start - 1].isalnum() or line[start - 1] == "_")
+            needs_l = False
+            i += 1
+            while i < n:
+                if line[i] == "\\":
+                    i += 2
+                elif line[i] == '"':
+                    i += 1
+                    break
+                else:
+                    if ord(line[i]) > 127:
+                        needs_l = True
+                    i += 1
+            if needs_l and not prefixed:
+                inserts.append(start)
+            continue
+
+        i += 1
+
+    if inserts:
+        parts = []
+        prev = 0
+        for pos in inserts:
+            parts.append(line[prev:pos])
+            parts.append("L")
+            prev = pos
+        parts.append(line[prev:])
+        line = "".join(parts)
+
+    return line, in_block_comment
+
+
+def add_wide_prefixes(text):
+    """Apply widen_line to every line of text, keeping line endings."""
+    lines = text.splitlines(keepends=True)
+    in_block_comment = False
+    out = []
+    for raw_line in lines:
+        stripped = raw_line.rstrip("\r\n")
+        eol = raw_line[len(stripped):]
+        new_line, in_block_comment = widen_line(stripped, in_block_comment)
+        out.append(new_line + eol)
+    return "".join(out)
+
+
 def normalize_codepage(name):
     name = name.strip()
     if name.isdigit():
@@ -46,8 +146,11 @@ def normalize_codepage(name):
     return name
 
 
-def convert_file(file_name, codepage):
+def convert_file(file_name, codepage, widen=False):
     """Convert file_name in-place to UTF-8 with BOM.
+
+    With widen=True, narrow string literals containing non-ASCII
+    characters also get the L prefix ("ahoj" -> L"ahoj").
 
     Returns True if the file was actually rewritten, False if it was
     already in the target format (no disk write performed).
@@ -61,6 +164,9 @@ def convert_file(file_name, codepage):
         text = body.decode("utf-8")
     except UnicodeDecodeError:
         text = body.decode(codepage)
+
+    if widen:
+        text = add_wide_prefixes(text)
 
     output = UTF8_BOM + text.encode("utf-8")
 
@@ -81,16 +187,17 @@ def convert_file(file_name, codepage):
 
 
 class Processor:
-    def __init__(self, recursive, codepage):
+    def __init__(self, recursive, codepage, widen=False):
         self.recursive = recursive
         self.codepage = codepage
+        self.widen = widen
         self.success_count = 0
         self.fail_count = 0
 
     def process_file(self, file_name):
         sys.stdout.write("  {} ... ".format(file_name))
         try:
-            converted = convert_file(file_name, self.codepage)
+            converted = convert_file(file_name, self.codepage, self.widen)
             sys.stdout.write("converted\n" if converted else "already up to date\n")
             self.success_count += 1
         except Exception as e:
@@ -135,7 +242,7 @@ class Processor:
 
 
 def print_usage():
-    print("Usage: code_stabilizer.py [-s] [-a:<codepage>] <file|pattern|@listfile> [...]")
+    print("Usage: code_stabilizer.py [-s] [-w] [-a:<codepage>] <file|pattern|@listfile> [...]")
     print()
     print("Converts text files in-place from an ANSI codepage to UTF-8 with BOM:")
     print("  - files already starting with a UTF-8 BOM are left untouched")
@@ -145,6 +252,7 @@ def print_usage():
     print()
     print("Options:")
     print("  -s              Recurse into subdirectories when expanding wildcard patterns")
+    print('  -w              Add L prefix to "..." literals containing non-ASCII characters')
     print("  -a:<codepage>   Source ANSI codepage for non-UTF-8 files (default: {})".format(DEFAULT_CODEPAGE))
     print()
     print("Arguments:")
@@ -166,6 +274,7 @@ def main(argv):
         return 1
 
     recursive = False
+    widen = False
     codepage = DEFAULT_CODEPAGE
     args = []
 
@@ -173,6 +282,8 @@ def main(argv):
         lower = arg.lower()
         if lower == "-s":
             recursive = True
+        elif lower == "-w":
+            widen = True
         elif lower.startswith("-a:"):
             try:
                 codepage = normalize_codepage(arg[3:])
@@ -186,7 +297,7 @@ def main(argv):
         print_usage()
         return 1
 
-    processor = Processor(recursive, codepage)
+    processor = Processor(recursive, codepage, widen)
     for arg in args:
         processor.process_arg(arg)
 
