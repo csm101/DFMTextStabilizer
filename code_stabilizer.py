@@ -13,10 +13,11 @@ Argument syntax:
                   contain characters outside ASCII, turning "ahoj" into
                   L"ahoj" only where the wide prefix is actually needed.
                   Literals wrapped in the TEXT() macro are left alone,
-                  because TEXT() adds the L prefix itself. On lines with
-                  a ternary ? operator where some literal gets the L,
-                  the remaining literals on the line get it too, so both
-                  branches of  cond ? "pan" : "paní"  are wide.
+                  because TEXT() adds the L prefix itself. When at least
+                  one literal on a line needs the L prefix, the remaining
+                  literals on that line get it too, so initializers like
+                  {"", "minut", "dnů"} and ternary branches like
+                  cond ? "pan" : "paní"  stay the same type.
                   A file is only rewritten when its content actually
                   changes; if the sole difference would be the prepended
                   UTF-8 BOM, the file is left untouched.
@@ -82,9 +83,11 @@ def widen_line(line, in_block_comment):
     Literals that already have a prefix (L"...", u8"...", macro"...")
     or are wrapped in the TEXT() macro are left alone.
 
-    When the line contains a ternary ? operator and at least one literal
-    gets the L prefix, all remaining eligible literals on the line get it
-    too, so both branches of  cond ? "pan" : "paní"  stay the same type.
+    When at least one literal on the line needs the L prefix, all
+    remaining eligible literals on the line get it too, so aggregate
+    initializers like  {"", "minut", "dnů"}  or both branches of
+    cond ? "pan" : "paní"  stay the same type. On lines with a ternary
+    ? operator an already existing L"..." literal triggers this as well.
 
     Returns (new_line, in_block_comment) where in_block_comment is the
     comment state carried over to the next line.
@@ -160,7 +163,7 @@ def widen_line(line, in_block_comment):
 
         i += 1
 
-    if has_ternary and ascii_literals and (inserts or has_wide):
+    if ascii_literals and (inserts or (has_ternary and has_wide)):
         inserts = sorted(inserts + ascii_literals)
 
     if inserts:
