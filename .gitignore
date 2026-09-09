@@ -38,3 +38,4 @@ __recovery/
 # Logs and temp
 *.log
 *.tmp
+/__pycache__/*.pyc
