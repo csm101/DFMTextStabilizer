@@ -169,14 +169,9 @@ end;
 // Extract the numeric code page from an "-a:<codepage>" argument.
 // Accepts a bare number (-a:1250) or a name containing one (-a:CP1250).
 function ExtractAnsiCodePage(const Arg: string): Integer;
-var
-  Value : string;
-  Digits: string;
-  C     : Char;
 begin
-  Value := Arg.Substring(Length(AnsiCodePageSwitch));
-  Digits := '';
-  for C in Value do
+  var Digits := '';
+  for var C in Arg.Substring(Length(AnsiCodePageSwitch)) do
     if CharInSet(C, ['0'..'9']) then
       Digits := Digits + C;
   if not TryStrToInt(Digits, Result) then

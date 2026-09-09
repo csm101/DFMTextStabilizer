@@ -239,7 +239,7 @@ The tool shares the same conversion logic as the plugin (`DFMTextStabilizerCore.
 ### Usage
 
 ```
-DFMStabilizerTool [-s] <file|pattern|@listfile> [...]
+DFMStabilizerTool [-s] [-a:<codepage>] <file|pattern|@listfile> [...]
 ```
 
 | Argument | Description |
@@ -248,6 +248,7 @@ DFMStabilizerTool [-s] <file|pattern|@listfile> [...]
 | `pattern` | Wildcard pattern, e.g. `*.dfm` or `forms\*.dfm` |
 | `@listfile` | Text file listing one path or pattern per line (`#` = comment) |
 | `-s` | Recurse into subdirectories when expanding wildcard patterns |
+| `-a:<codepage>` | Decode text DFMs that have no UTF-8 BOM using the given Windows ANSI code page (e.g. `-a:1250` for Central European) instead of assuming UTF-8 without BOM. Use this for legacy DFMs that fail with *"No mapping for the Unicode character exists in the target multi-byte code page"*. Files that already start with a UTF-8 BOM are not affected by this option. |
 
 **Examples:**
 
@@ -269,6 +270,9 @@ DFMStabilizerTool @all_forms.txt
 
 # Mix patterns and list files
 DFMStabilizerTool -s *.dfm @extra_forms.txt
+
+# Convert legacy DFMs stored in the Central European ANSI code page (CP1250)
+DFMStabilizerTool -a:1250 legacy\*.dfm
 ```
 
 The tool exits with code 0 if all files were converted (or were already up to date), and with code 1 if any file failed. Failed files are reported individually and do not interrupt processing of the remaining ones.

@@ -484,6 +484,40 @@ var
   BOMLen      : Integer;
   TmpFileName : string;
   OutFile     : TFileStream;
+
+  // Feeds ObjectTextToBinary with the UTF-8 BOM followed by the given bytes,
+  // so that TParser decodes the text as UTF-8.
+  procedure ParseTextPrependingBOM(const Data: Pointer; Size: NativeInt);
+  begin
+    var Patched := TMemoryStream.Create;
+    try
+      Patched.Write(BOM[0], BOMLen);
+      if Size > 0 then
+        Patched.Write(Data^, Size);
+      Patched.Position := 0;
+      ObjectTextToBinary(Patched, BinaryStream);
+    finally
+      Patched.Free;
+    end;
+  end;
+
+  // Transcodes the whole file content from the given ANSI code page to UTF-8
+  // before parsing it, so legacy files (e.g. CP1250) are read correctly.
+  procedure ParseAnsiTextAsUTF8(ACodePage: Integer);
+  begin
+    var AnsiEncoding := TEncoding.GetEncoding(ACodePage);
+    try
+      var RawBytes: TBytes;
+      SetLength(RawBytes, FileContent.Size);
+      if FileContent.Size > 0 then
+        Move(FileContent.Memory^, RawBytes[0], FileContent.Size);
+      var UTF8Bytes := TEncoding.Convert(AnsiEncoding, TEncoding.UTF8, RawBytes);
+      ParseTextPrependingBOM(Pointer(UTF8Bytes), Length(UTF8Bytes));
+    finally
+      AnsiEncoding.Free;
+    end;
+  end;
+
 begin
   FileContent  := TMemoryStream.Create;
   BinaryStream := TMemoryStream.Create;
@@ -531,43 +565,13 @@ begin
       else if AAnsiCodePage <> 0 then
       begin
         // Case 2: caller specified the source ANSI code page explicitly —
-        // decode with it rather than guessing UTF-8, so legacy files (e.g.
-        // CP1250) are read correctly.
-        var RawBytes: TBytes;
-        var AnsiEncoding := TEncoding.GetEncoding(AAnsiCodePage);
-        try
-          SetLength(RawBytes, FileContent.Size);
-          if FileContent.Size > 0 then
-            Move(FileContent.Memory^, RawBytes[0], FileContent.Size);
-          var DecodedStr := AnsiEncoding.GetString(RawBytes);
-          var UTF8Bytes := TEncoding.UTF8.GetBytes(DecodedStr);
-
-          var Patched := TMemoryStream.Create;
-          try
-            Patched.Write(BOM[0], BOMLen);
-            if Length(UTF8Bytes) > 0 then
-              Patched.Write(UTF8Bytes[0], Length(UTF8Bytes));
-            Patched.Position := 0;
-            ObjectTextToBinary(Patched, BinaryStream);
-          finally
-            Patched.Free;
-          end;
-        finally
-          AnsiEncoding.Free;
-        end;
+        // decode with it rather than guessing UTF-8
+        ParseAnsiTextAsUTF8(AAnsiCodePage);
       end
       else if HasNonAsciiBytes(FileContent.Memory, FileContent.Size) then
       begin
         // Case 3: UTF-8 without BOM — prepend BOM in a temporary stream
-        var Patched := TMemoryStream.Create;
-        try
-          Patched.Write(BOM[0], BOMLen);
-          Patched.Write(FileContent.Memory^, FileContent.Size);
-          Patched.Position := 0;
-          ObjectTextToBinary(Patched, BinaryStream);
-        finally
-          Patched.Free;
-        end;
+        ParseTextPrependingBOM(FileContent.Memory, FileContent.Size);
       end
       else
       begin
