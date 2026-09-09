@@ -38,3 +38,6 @@ __recovery/
 # Logs and temp
 *.log
 *.tmp
+
+# Build.bat output
+Bin/

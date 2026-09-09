@@ -197,6 +197,35 @@ No other configuration is needed. Once the package is installed in the IDE, ever
 
 ---
 
+## Building without the IDE (`Build.bat`)
+
+`Build.bat` builds everything from the command line using only the Delphi command-line compilers (`dcc32` / `dcc64`). These compilers are shipped not only by Delphi and RAD Studio but also by **C++Builder**, so C++Builder-only users can build and install the plugin even though they cannot open the Delphi project in their IDE. Community and Trial editions do not include the command-line compilers.
+
+1. Clone [DDetours](https://github.com/MahdiSafsafi/DDetours) next to this repository (or anywhere else):
+   ```
+   git clone https://github.com/MahdiSafsafi/DDetours ..\DDetours
+   ```
+2. Run the script from the repository folder:
+   ```
+   Build.bat ..\DDetours\Source
+   ```
+   The first argument is the folder containing `DDetours.pas`; it can be omitted when DDetours is in `.\DDetours` or `..\DDetours`, or when the `DDETOURS_SRC` environment variable points to it. The optional second argument is the RAD Studio installation folder; by default the script uses the one selected by `rsvars.bat` if it was already run, otherwise the newest installation found under `%ProgramFiles(x86)%\Embarcadero\Studio`.
+3. Install the package from the IDE menu **Component → Install Packages… → Add…**, picking the BPL listed at the end of the build.
+
+The output goes to `Bin\Studio<version>\`:
+
+| File | Description |
+|------|-------------|
+| `Win32\DFMTextStabilizerStandalone.bpl` | Design-time package for the 32-bit IDE. Always built. |
+| `Win64\DFMTextStabilizerStandalone.bpl` | Design-time package for the 64-bit IDE. Built only when both the 64-bit IDE (`bin64\bds.exe`) and `dcc64` are installed. Install it from the 64-bit IDE. |
+| `Win64\DFMStabilizerTool.exe` | The [batch conversion tool](#batch-conversion-tool). Built with `dcc64` when available, otherwise as a Win32 executable in `Win32\`. |
+
+The IDE loads the package from that location at every start, so keep the `Bin` folder where it is.
+
+`DFMTextStabilizerStandalone.dpk` is a self-contained variant of `DFMTextStabilizer.dpk`: it compiles the DDetours units directly into the package instead of requiring a separate DelphiDetours runtime package. Do not install it side by side with a DelphiDetours BPL, because the IDE refuses to load the same units twice; in that case use `DFMTextStabilizer.dpk` from the IDE as described above.
+
+---
+
 ## Compatibility
 
 This plugin has been tested on Studio 23.0 / Delphi 12 Athens, in both the 32-bit IDE and the 64-bit IDE.
@@ -282,7 +311,7 @@ The tool exits with code 0 if all files were converted (or were already up to da
 
 ### Requirements
 
-`DFMStabilizerTool` is a pure RTL console application. It has no dependency on DelphiDetours or on any IDE package — compile it with any version of Delphi supported by the plugin.
+`DFMStabilizerTool` is a pure RTL console application. It has no dependency on DelphiDetours or on any IDE package — compile it with any version of Delphi supported by the plugin, or let [`Build.bat`](#building-without-the-ide-buildbat) build it together with the package (this also works with C++Builder, which ships the Delphi command-line compilers).
 
 ---
 

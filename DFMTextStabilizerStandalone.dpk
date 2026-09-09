@@ -1,0 +1,27 @@
+package DFMTextStabilizerStandalone;
+
+{ SPDX-License-Identifier: MIT }
+
+{
+  Self-contained variant of DFMTextStabilizer.dpk, meant to be built from the
+  command line by Build.bat without opening the IDE and without a separate
+  DelphiDetours package: the DDetours units are compiled straight into this
+  package from the DDetours source folder passed to Build.bat.
+
+  Do not install this package side by side with a DelphiDetours runtime
+  package (e.g. DelphiDetoursD29.bpl): the IDE would refuse to load the same
+  units twice. Use DFMTextStabilizer.dpk in that case.
+}
+
+{$DESCRIPTION 'DFMTextStabilizer - Delphi IDE plugin for stable UTF-8 textual DFM serialization (self-contained)'}
+{$DESIGNONLY}
+{$IMPLICITBUILD OFF}
+{$WARN IMPLICIT_IMPORT OFF}
+
+requires
+  rtl;
+
+contains
+  DFMBinaryToTextHook in 'DFMBinaryToTextHook.pas';
+
+end.
