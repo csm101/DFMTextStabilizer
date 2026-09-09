@@ -12,6 +12,14 @@
                     Accepts both text DFMs (UTF-8 with/without BOM, ANSI) and
                     legacy binary DFMs.  The original file is replaced atomically
                     via a temporary file.
+
+  AAnsiCodePage on ConvertDFMFile: when a text DFM has no UTF-8 BOM and
+  contains non-ASCII bytes, it is normally assumed to be UTF-8 without a BOM.
+  Some legacy DFMs are instead stored in a single-byte ANSI code page (e.g.
+  1250 for Central European / Czech text). Pass that code page explicitly to
+  decode such files correctly instead of misinterpreting them as UTF-8, which
+  otherwise fails with "No mapping for the Unicode character exists in the
+  target multi-byte code page" or produces mojibake.
 }
 
 interface
@@ -28,7 +36,10 @@ procedure DFMBinaryToText(const Input, Output: TStream);
 // Returns True if the file was actually rewritten, False if it was already
 // in the stabilized format (no disk write performed).
 // Raises an exception if the file cannot be read, parsed, or written.
-function ConvertDFMFile(const AFileName: string): Boolean;
+// AAnsiCodePage: Windows code page (e.g. 1250) to use when decoding a text
+// DFM that has no UTF-8 BOM but contains non-ASCII bytes. Pass 0 (default)
+// to keep the previous auto-detect-as-UTF-8 behavior.
+function ConvertDFMFile(const AFileName: string; AAnsiCodePage: Integer = 0): Boolean;
 
 implementation
 
@@ -464,7 +475,7 @@ begin
   Stream.Position := SavePos;
 end;
 
-function ConvertDFMFile(const AFileName: string): Boolean;
+function ConvertDFMFile(const AFileName: string; AAnsiCodePage: Integer = 0): Boolean;
 var
   FileContent : TMemoryStream;
   BinaryStream: TMemoryStream;
@@ -495,12 +506,15 @@ begin
       // bytes are misinterpreted as ANSI, causing double-encoding of every
       // character above U+007F.
       //
-      // Three cases:
+      // Four cases:
       //  1. BOM present   → pass the stream as-is starting from position 0;
       //                     TParser skips the BOM itself.
-      //  2. Non-ASCII bytes without BOM (UTF-8 without BOM) → prepend BOM in
-      //                     memory before passing to ObjectTextToBinary.
-      //  3. Pure ASCII    → no BOM needed; pass directly.
+      //  2. Explicit ANSI code page given (AAnsiCodePage <> 0) → decode the
+      //                     raw bytes using that code page, re-encode as
+      //                     UTF-8, then prepend BOM before passing on.
+      //  3. Non-ASCII bytes without BOM, no code page given → assume UTF-8
+      //                     without BOM; prepend BOM in memory.
+      //  4. Pure ASCII    → no BOM needed; pass directly.
       //
       // This mirrors the logic in HookedObjectTextToBinary in the IDE plugin.
 
@@ -514,9 +528,37 @@ begin
         FileContent.Position := 0;
         ObjectTextToBinary(FileContent, BinaryStream);
       end
+      else if AAnsiCodePage <> 0 then
+      begin
+        // Case 2: caller specified the source ANSI code page explicitly —
+        // decode with it rather than guessing UTF-8, so legacy files (e.g.
+        // CP1250) are read correctly.
+        var RawBytes: TBytes;
+        var AnsiEncoding := TEncoding.GetEncoding(AAnsiCodePage);
+        try
+          SetLength(RawBytes, FileContent.Size);
+          if FileContent.Size > 0 then
+            Move(FileContent.Memory^, RawBytes[0], FileContent.Size);
+          var DecodedStr := AnsiEncoding.GetString(RawBytes);
+          var UTF8Bytes := TEncoding.UTF8.GetBytes(DecodedStr);
+
+          var Patched := TMemoryStream.Create;
+          try
+            Patched.Write(BOM[0], BOMLen);
+            if Length(UTF8Bytes) > 0 then
+              Patched.Write(UTF8Bytes[0], Length(UTF8Bytes));
+            Patched.Position := 0;
+            ObjectTextToBinary(Patched, BinaryStream);
+          finally
+            Patched.Free;
+          end;
+        finally
+          AnsiEncoding.Free;
+        end;
+      end
       else if HasNonAsciiBytes(FileContent.Memory, FileContent.Size) then
       begin
-        // Case 2: UTF-8 without BOM — prepend BOM in a temporary stream
+        // Case 3: UTF-8 without BOM — prepend BOM in a temporary stream
         var Patched := TMemoryStream.Create;
         try
           Patched.Write(BOM[0], BOMLen);
@@ -529,7 +571,7 @@ begin
       end
       else
       begin
-        // Case 3: pure ASCII (e.g. old ANSI DFM with #NNN escapes)
+        // Case 4: pure ASCII (e.g. old ANSI DFM with #NNN escapes)
         FileContent.Position := 0;
         ObjectTextToBinary(FileContent, BinaryStream);
       end;
