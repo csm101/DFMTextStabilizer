@@ -4,14 +4,15 @@ unit DFMStabilizerCLI;
   Command-line interface for the DFM stabilizer tool.
 
   Argument syntax:
-    DFMStabilizerTool [-s] [-a:<codepage>] <file|pattern|@listfile> [...]
+    DFMStabilizerTool [-s] [-a:<codepage|name>] <file|pattern|@listfile> [...]
 
     -s          Recurse into subdirectories when expanding wildcard patterns.
     -a:<cp>     Treat text DFMs with no UTF-8 BOM as being encoded in the
-                given ANSI code page (e.g. -a:1250) instead of assuming
-                UTF-8 without BOM. Use this for legacy DFMs that fail with
-                "No mapping for the Unicode character exists in the target
-                multi-byte code page".
+                given ANSI code page instead of assuming UTF-8 without BOM.
+                Accepts a code page number (-a:1250), an IANA encoding name
+                (-a:iso-8859-2, -a:windows-1250) or cpNNNN (-a:cp1250).
+                Use this for legacy DFMs that fail with "No mapping for the
+                Unicode character exists in the target multi-byte code page".
     file        Exact path to a DFM file.
     pattern     Wildcard pattern: *.dfm, path\*.dfm, etc.
     @listfile   Text file listing one path or pattern per line.
@@ -166,21 +167,41 @@ begin
   Result := Arg.StartsWith(AnsiCodePageSwitch, True);
 end;
 
-// Extract the numeric code page from an "-a:<codepage>" argument.
-// Accepts a bare number (-a:1250) or a name containing one (-a:CP1250).
-function ExtractAnsiCodePage(const Arg: string): Integer;
+// Resolve the code page given by an "-a:<codepage|name>" argument.
+// Accepts a numeric code page (-a:1250), an IANA encoding name (-a:iso-8859-2,
+// -a:windows-1250) or the cpNNNN form (-a:cp1250). The encoding is actually
+// instantiated here, so an unsupported value is rejected once, up front,
+// instead of failing on every single file.
+function ResolveAnsiCodePage(const Arg: string): Integer;
+
+  function CreateEncoding(const Value: string): TEncoding;
+  begin
+    var NumericCodePage: Integer;
+    if TryStrToInt(Value, NumericCodePage) then
+      Exit(TEncoding.GetEncoding(NumericCodePage));
+    Result := TEncoding.GetEncoding(Value);
+  end;
+
 begin
-  var Digits := '';
-  for var C in Arg.Substring(Length(AnsiCodePageSwitch)) do
-    if CharInSet(C, ['0'..'9']) then
-      Digits := Digits + C;
-  if not TryStrToInt(Digits, Result) then
-    raise Exception.CreateFmt('Invalid ANSI code page: "%s"', [Arg]);
+  var Value := Arg.Substring(Length(AnsiCodePageSwitch));
+  try
+    var Encoding := CreateEncoding(Value);
+    try
+      Result := Encoding.CodePage;
+    finally
+      Encoding.Free;
+    end;
+  except
+    on E: Exception do
+      raise Exception.CreateFmt('Invalid ANSI code page "%s": %s' + sLineBreak +
+        'Use a Windows code page number (1250), an IANA name (iso-8859-2, windows-1250) or cpNNNN (cp1250).',
+        [Value, E.Message]);
+  end;
 end;
 
 procedure PrintUsage;
 begin
-  Writeln('Usage: DFMStabilizerTool [-s] [-a:<codepage>] <file|pattern|@listfile> [...]');
+  Writeln('Usage: DFMStabilizerTool [-s] [-a:<codepage|name>] <file|pattern|@listfile> [...]');
   Writeln;
   Writeln('Converts DFM files in-place to the stabilized UTF-8 text format:');
   Writeln('  - strings are not broken at 64 characters (limit raised to 700)');
@@ -191,8 +212,9 @@ begin
   Writeln('Options:');
   Writeln('  -s          Recurse into subdirectories when expanding wildcard patterns');
   Writeln('  -a:<cp>     Decode text DFMs with no UTF-8 BOM using ANSI code page <cp>');
-  Writeln('              (e.g. -a:1250 for Central European / Czech) instead of');
-  Writeln('              assuming UTF-8 without BOM. Use this if conversion fails with');
+  Writeln('              instead of assuming UTF-8 without BOM. <cp> is a code page');
+  Writeln('              number (1250), an IANA name (iso-8859-2, windows-1250) or');
+  Writeln('              cpNNNN (cp1250). Use this if conversion fails with');
   Writeln('              "No mapping for the Unicode character exists in the target');
   Writeln('              multi-byte code page".');
   Writeln;
@@ -207,6 +229,7 @@ begin
   Writeln('  DFMStabilizerTool -s src\*.dfm @extra_forms.txt');
   Writeln('  DFMStabilizerTool @all_forms.txt');
   Writeln('  DFMStabilizerTool -a:1250 legacy\*.dfm');
+  Writeln('  DFMStabilizerTool -a:iso-8859-2 legacy\*.dfm');
 end;
 
 // ---------------------------------------------------------------------------
@@ -233,7 +256,7 @@ begin
     if SameText(Arg, '-s') then
       Recursive := True
     else if IsAnsiCodePageArg(Arg) then
-      AnsiCodePage := ExtractAnsiCodePage(Arg);
+      AnsiCodePage := ResolveAnsiCodePage(Arg);
   end;
 
   Processor := TDFMProcessor.Create(Recursive, AnsiCodePage);
